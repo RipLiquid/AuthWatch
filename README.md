@@ -10,7 +10,7 @@ The project demonstrates practical experience with **security log analysis, thre
 
 ## Dashboard
 
-![AuthWatch SOC Dashboard](images/authwatch_soc_dashboard.png)
+![AuthWatch SOC Dashboard](images/AuthWatch SOC Dashboard.png)
 
 The Splunk Dashboard Studio implementation provides a centralized view of authentication activity, failed login trends, suspicious source IPs, and detected attack patterns.
 
