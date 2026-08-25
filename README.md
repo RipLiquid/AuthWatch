@@ -1,34 +1,88 @@
 # AuthWatch
 
-AuthWatch is a cybersecurity log-analysis project built with Python, SQL, and SQLite. It generates synthetic authentication data and analyzes login activity to identify suspicious behaviour such as brute-force attacks, credential stuffing, and possible account compromise.
+**Security Threat Detection & SIEM Analytics Platform**
 
-The project is designed to demonstrate practical experience with security log analysis, threat detection, SQL querying, event correlation, and security monitoring concepts.
+AuthWatch is a cybersecurity analytics project built with **Python, SQL, SQLite, Splunk, and SPL**. It generates synthetic authentication logs, stores and analyzes them using SQL, and ingests the events into Splunk to detect suspicious authentication behaviour and visualize security activity through a SOC-style dashboard.
+
+The project demonstrates practical experience with **security log analysis, threat detection, event correlation, SIEM analytics, SQL querying, SPL, and security monitoring**.
+
+---
+
+## Dashboard
+
+![AuthWatch SOC Dashboard](images/authwatch_soc_dashboard.png)
+
+The Splunk Dashboard Studio implementation provides a centralized view of authentication activity, failed login trends, suspicious source IPs, and detected attack patterns.
+
+---
 
 ## Features
 
-* Generates more than 50,000 synthetic authentication events
-* Stores authentication logs in a SQLite database
-* Detects brute-force login activity
+* Generates **50,064 synthetic authentication events**
+* Stores authentication data in a SQLite database
+* Analyzes authentication activity using SQL
+* Ingests structured authentication logs into Splunk
+* Uses custom **SPL threat-detection queries**
+* Detects brute-force login attempts
 * Detects credential-stuffing activity
 * Correlates repeated failed logins with subsequent successful authentication
-* Analyzes activity by username, source IP, country, device, and login status
-* Uses behavioural detection rather than predefined attack labels
-* Keeps generated datasets and databases out of version control
+* Visualizes authentication activity over time
+* Identifies failed-login source IPs
+* Provides a SOC-style security monitoring dashboard
+* Uses behaviour-based detection instead of relying on predefined attack labels
+
+---
 
 ## Technologies
 
-* Python
-* SQL
-* SQLite
-* Git
+* **Python**
+* **SQL**
+* **SQLite**
+* **Splunk Enterprise**
+* **Splunk Search Processing Language (SPL)**
+* **Git**
+
+---
+
+## Project Architecture
+
+```text
+                 AuthWatch
+                     |
+              Python Generator
+                     |
+                     v
+          authentication_logs.csv
+                /           \
+               /             \
+              v               v
+          SQLite             Splunk
+             |                  |
+             v                  v
+            SQL                SPL
+             |                  |
+             v                  v
+       Threat Detection    Threat Detection
+               \             /
+                \           /
+                 v         v
+              Security Analysis
+                     |
+                     v
+              SOC Dashboard
+```
+
+---
 
 ## Project Structure
 
 ```text
 AuthWatch/
+├── images/
+│   └── authwatch_soc_dashboard.png
 ├── data/
-│   ├── authentication_logs.csv   # Generated locally
-│   └── authwatch.db              # Generated locally
+│   ├── authentication_logs.csv
+│   └── authwatch.db
 ├── sql/
 │   └── detection_queries.sql
 ├── src/
@@ -39,38 +93,15 @@ AuthWatch/
 └── README.md
 ```
 
-Generated files inside the `data` directory are excluded from Git because they can be recreated using the included scripts.
+The generated `.csv` and `.db` files are excluded from version control and can be recreated locally using the included scripts.
 
-## How It Works
+---
 
-AuthWatch follows a simple security analytics pipeline:
+# Dataset
 
-```text
-Synthetic Authentication Events
-            |
-            v
-    Python Log Generator
-            |
-            v
- authentication_logs.csv
-            |
-            v
-        SQLite
-            |
-            v
-      SQL Analysis
-            |
-            v
-     Threat Detection
-```
+AuthWatch generates more than 50,000 authentication events representing a combination of normal and suspicious user activity.
 
-The generated dataset contains both normal authentication traffic and simulated suspicious activity.
-
-The detection logic does not rely on the `attack_type` field to determine whether activity is malicious. Instead, AuthWatch analyzes behavioural patterns in the authentication data.
-
-## Dataset
-
-Each generated authentication event contains fields such as:
+Each event contains:
 
 ```text
 timestamp
@@ -89,110 +120,245 @@ Example:
 2026-08-12 02:15:00,admin,198.51.100.41,Germany,login,failed,linux,brute_force
 ```
 
-The `attack_type` field acts only as ground truth for validating the synthetic dataset. Detection queries identify suspicious activity based on observable authentication behaviour.
+The `attack_type` field exists only as **ground truth for validating the synthetic dataset**.
 
-## Detection 1: Brute-Force Activity
+The actual SQL and SPL threat-detection logic does **not** use the `attack_type` field to determine whether activity is suspicious.
 
-AuthWatch searches for repeated failed authentication attempts against the same account from the same source IP within a one-hour period.
+This forces AuthWatch to identify attacks based on observable authentication behaviour.
 
-Detection logic:
+---
 
-```sql
-SELECT
-    strftime('%Y-%m-%d %H:00:00', timestamp) AS hour_bucket,
-    source_ip,
-    username,
-    COUNT(*) AS failed_attempts
-FROM security_events
-WHERE status = 'failed'
-GROUP BY hour_bucket, source_ip, username
-HAVING COUNT(*) >= 5
-ORDER BY failed_attempts DESC;
-```
+# Threat Detection
 
-The generated dataset produces a simulated attack with:
+## 1. Brute-Force Detection
+
+AuthWatch identifies repeated failed authentication attempts against the same account from the same source IP within a one-hour period.
+
+### Detection condition
 
 ```text
-Source IP: 198.51.100.41
-Username: admin
+Same source IP
+        +
+Same username
+        +
+5 or more failed logins
+        +
+Within one hour
+```
+
+Detected simulated attack:
+
+```text
+Detection Time: 2026-08-12 02:00:00
+Source IP:      198.51.100.41
+Username:       admin
 Failed Attempts: 30
 ```
 
-## Detection 2: Credential Stuffing
+### SPL
 
-Credential stuffing differs from a traditional brute-force attack because one source attempts to authenticate against multiple accounts.
+```spl
+index=authwatch status="failed"
+| bin _time span=1h
+| stats count AS failed_attempts BY _time source_ip username
+| where failed_attempts >= 5
+| eval detection_time=strftime(_time,"%Y-%m-%d %H:%M:%S")
+| table detection_time source_ip username failed_attempts
+| sort - failed_attempts
+```
 
-AuthWatch identifies source IP addresses generating failed authentication attempts against at least five distinct users within the same hour.
+---
 
-Example detection:
+## 2. Credential-Stuffing Detection
+
+Credential stuffing differs from brute force because a single source attempts to authenticate against **multiple user accounts** rather than repeatedly targeting one account.
+
+### Detection condition
 
 ```text
-Source IP: 203.0.113.80
+Same source IP
+        +
+5 or more distinct usernames
+        +
+Failed authentication attempts
+        +
+Within one hour
+```
+
+Detected simulated activity:
+
+```text
+Detection Time:   2026-08-15 03:00:00
+Source IP:        203.0.113.80
 Accounts Targeted: 10
-Failed Attempts: 30
+Failed Attempts:   30
 ```
 
-## Detection 3: Possible Account Compromise
+### SPL
 
-AuthWatch also performs event correlation to identify cases where repeated authentication failures are followed by a successful login from the same source IP and against the same user account.
+```spl
+index=authwatch status="failed"
+| bin _time span=1h
+| stats dc(username) AS targeted_accounts count AS failed_attempts BY _time source_ip
+| where targeted_accounts >= 5
+| eval detection_time=strftime(_time,"%Y-%m-%d %H:%M:%S")
+| table detection_time source_ip targeted_accounts failed_attempts
+| sort - targeted_accounts
+```
 
-Example:
+---
+
+## 3. Possible Account Compromise
+
+AuthWatch performs event correlation to identify repeated authentication failures followed by a successful login from the same source IP against the same user account.
+
+Detected activity:
 
 ```text
-30 failed login attempts
-        |
-        v
-Same IP and username
-        |
-        v
-Successful login
-        |
-        v
-Possible Account Compromise
+Source IP:       198.51.100.41
+Username:        admin
+Failed Attempts: 30
+
+Last Failure:
+2026-08-12 02:18:52
+
+Successful Login:
+2026-08-12 02:19:05
 ```
 
-This type of correlation can help identify situations where an attacker may have eventually obtained valid credentials.
+The successful login occurred only **13 seconds after the final failed attempt**.
 
-## Running the Project
+This produces the behavioural sequence:
 
-### 1. Clone the repository
+```text
+30 Failed Authentication Attempts
+               |
+               v
+       Same IP + Username
+               |
+               v
+       Successful Login
+               |
+               v
+   Possible Account Compromise
+```
+
+### SPL
+
+```spl
+index=authwatch
+| eval event_time=_time
+| bin _time span=1h
+| stats
+    count(eval(status="failed")) AS failed_attempts
+    max(eval(if(status="failed", event_time, null()))) AS last_failure
+    min(eval(if(status="success", event_time, null()))) AS first_success
+    BY _time source_ip username
+| where failed_attempts >= 5
+    AND isnotnull(first_success)
+    AND first_success > last_failure
+| eval detection_time=strftime(_time,"%Y-%m-%d %H:%M:%S"),
+       last_failure=strftime(last_failure,"%Y-%m-%d %H:%M:%S"),
+       first_success=strftime(first_success,"%Y-%m-%d %H:%M:%S")
+| table detection_time source_ip username failed_attempts last_failure first_success
+| sort - failed_attempts
+```
+
+---
+
+# SOC Dashboard
+
+The AuthWatch SOC Dashboard was created using **Splunk Dashboard Studio**.
+
+It contains:
+
+### Authentication Overview
+
+* Total authentication events: **50,064**
+* Successful logins: **48,008**
+* Failed logins: **2,056**
+
+### Authentication Activity
+
+The dashboard visualizes:
+
+* Total authentication activity over time
+* Failed authentication activity over time
+* Successful versus failed authentication trends
+
+### Failed Login Sources
+
+A horizontal bar chart compares failed authentication volume across source IP addresses.
+
+This demonstrates an important security-monitoring concept: a high raw event count alone does not necessarily indicate an attack.
+
+Normal internal source IPs accumulated more failures over the full dataset than the simulated attacker IPs.
+
+The behavioural detection rules therefore use:
+
+* Time windows
+* User correlation
+* Source-IP correlation
+* Distinct-account counts
+
+to reduce false positives.
+
+### Threat Detection Panels
+
+The dashboard includes dedicated tables for:
+
+* Brute-force detection
+* Credential-stuffing detection
+* Possible account compromise
+
+---
+
+# Running AuthWatch
+
+## 1. Clone the repository
 
 ```bash
 git clone https://github.com/RipLiquid/AuthWatch.git
 cd AuthWatch
 ```
 
-### 2. Generate authentication logs
+---
+
+## 2. Generate the authentication dataset
 
 ```bash
 python src/generate_logs.py
 ```
 
-Expected output:
+Expected:
 
 ```text
 Created 50,064 authentication events.
 ```
 
-This creates:
+This generates:
 
 ```text
 data/authentication_logs.csv
 ```
 
-### 3. Create the SQLite database
+---
+
+## 3. Create the SQLite database
 
 ```bash
 python src/init_db.py
 ```
 
-Expected output:
+Expected:
 
 ```text
 Loaded 50,064 events into data/authwatch.db
 ```
 
-### 4. Run the threat detections
+---
+
+## 4. Run the SQL threat detections
 
 ```bash
 python src/run_detections.py
@@ -216,59 +382,168 @@ Accounts Targeted: 10
 Failed Attempts: 30
 
 === POSSIBLE ACCOUNT COMPROMISE ===
+IP: 198.51.100.41
 User: admin
 Failed Attempts: 30
-Successful Login Detected
 ```
 
-## Security Concepts Demonstrated
+---
 
-This project demonstrates several cybersecurity and data-analysis concepts:
+# Splunk Configuration
 
+The generated CSV was ingested into Splunk using:
+
+```text
+Index:
+authwatch
+
+Source Type:
+authwatch:authentication
+```
+
+Splunk automatically extracts fields including:
+
+```text
+timestamp
+username
+source_ip
+country
+event_type
+status
+device
+attack_type
+```
+
+The event timestamp is mapped to Splunk's `_time` field, allowing time-windowed SPL detections and time-series visualization.
+
+---
+
+# SQL Analysis
+
+AuthWatch also implements detection logic directly against the SQLite database.
+
+Example brute-force query:
+
+```sql
+SELECT
+    strftime('%Y-%m-%d %H:00:00', timestamp) AS hour_bucket,
+    source_ip,
+    username,
+    COUNT(*) AS failed_attempts
+FROM security_events
+WHERE status = 'failed'
+GROUP BY hour_bucket, source_ip, username
+HAVING COUNT(*) >= 5
+ORDER BY failed_attempts DESC;
+```
+
+This allows the same authentication dataset to be analyzed through both:
+
+```text
+SQL / SQLite
+     and
+Splunk / SPL
+```
+
+---
+
+# Security Concepts Demonstrated
+
+AuthWatch demonstrates practical experience with:
+
+* Security Information and Event Management (SIEM)
 * Authentication log analysis
+* Security monitoring
 * Threat detection
+* Threat hunting
 * Brute-force detection
 * Credential-stuffing detection
 * Event correlation
-* Security monitoring
 * Behaviour-based detection
-* Structured data preprocessing
+* Authentication anomaly analysis
 * SQL aggregation
+* SPL queries
 * Time-window analysis
+* Data preprocessing
+* Structured log ingestion
+* Security dashboards
 * Incident investigation concepts
+* False-positive reduction
 
-## Synthetic Data
+---
 
-All authentication activity in this repository is synthetic and created specifically for educational and portfolio purposes.
+# Synthetic Data and Safety
 
-Private and documentation-only IP address ranges are used so that the dataset does not represent actual hosts or real attack traffic.
+All authentication activity used by AuthWatch is synthetic and was generated specifically for educational and portfolio purposes.
 
-## Roadmap
+No real user accounts, credentials, enterprise systems, or attack traffic are included.
 
-Future versions of AuthWatch will expand the project with:
+The project uses private and documentation-only IP address ranges to avoid representing real-world attack infrastructure.
 
-* Splunk log ingestion
-* SPL threat-detection queries
-* SIEM-based event correlation
-* Security dashboards and visualizations
-* Threat-monitoring reports
+---
+
+# Results
+
+AuthWatch successfully processed:
+
+```text
+50,064 authentication events
+```
+
+and identified:
+
+```text
+Brute Force
+198.51.100.41 → admin
+30 failed attempts
+
+Credential Stuffing
+203.0.113.80
+10 accounts targeted
+30 failed attempts
+
+Possible Account Compromise
+198.51.100.41 → admin
+30 failures followed by successful authentication
+```
+
+The same attack behaviours were detected using both **SQL-based analytics and Splunk SPL**.
+
+---
+
+# Future Improvements
+
+Potential future enhancements include:
+
 * Additional authentication attack scenarios
+* Impossible-travel detection
+* Account lockout detection
+* Privileged-account monitoring
+* Risk scoring
+* Detection severity levels
+* Live log ingestion
+* Automated alerting
+* Additional SOC dashboard visualizations
+* Integration with additional security log sources
+
+---
 
 ## Project Status
 
-**Current Version:** Python + SQL threat-detection pipeline
+**Current Version: Complete Security Analytics Pipeline**
 
 Completed:
 
 * Synthetic authentication dataset generation
+* Python preprocessing
 * SQLite database integration
+* SQL threat detection
 * Brute-force detection
 * Credential-stuffing detection
-* Possible account-compromise detection
-* Event correlation
-
-Planned:
-
-* Splunk integration
+* Account-compromise correlation
+* Splunk log ingestion
 * SPL detection rules
-* SOC-style security dashboard
+* Saved Splunk detection reports
+* Authentication trend visualization
+* Source-IP analysis
+* Splunk Dashboard Studio SOC dashboard
