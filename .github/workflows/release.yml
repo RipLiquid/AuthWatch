@@ -1,0 +1,60 @@
+name: AuthWatch Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Generate authentication logs
+        run: python src/generate_logs.py
+
+      - name: Build SQLite database
+        run: python src/init_db.py
+
+      - name: Run automated tests
+        run: python -m unittest discover -s tests -v
+
+  release:
+    name: Publish GitHub Release
+    needs: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create release package
+        run: |
+          mkdir authwatch-release
+          cp -r src authwatch-release/
+          cp -r sql authwatch-release/
+          cp -r images authwatch-release/
+          cp README.md authwatch-release/
+          cp .gitignore authwatch-release/
+          zip -r AuthWatch-${{ github.ref_name }}.zip authwatch-release
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            "AuthWatch-${{ github.ref_name }}.zip" \
+            --title "AuthWatch ${{ github.ref_name }}" \
+            --generate-notes
